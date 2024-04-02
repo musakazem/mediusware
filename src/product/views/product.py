@@ -1,12 +1,51 @@
+import json
+
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 from django.views import generic
 from django.db.models import Q
+from django.db import transaction
 
-from product.models import ProductVariant, Variant, Product
+from product.forms import ProductForm
+from product.models import ProductImage, ProductVariant, ProductVariantPrice, Variant, Product
+
+
+def get_list_value(lst: List, index: int):
+    try:
+        return lst[index]
+    except IndexError:
+        return None
+
+
+def create_product_variant_price(data: Dict, product: Product, product_variant_map: Dict) -> None:
+    for product_variant_price in data["product_variant_prices"]:
+        data_variants = product_variant_price["title"].split("/")
+
+        ProductVariantPrice.objects.create(
+            product_variant_one_id=product_variant_map.get(get_list_value(data_variants, 0)),
+            product_variant_two_id=product_variant_map.get(get_list_value(data_variants, 1)),
+            product_variant_three_id=product_variant_map.get(get_list_value(data_variants, 2)),
+            price=product_variant_price["price"],
+            stock=product_variant_price["stock"],
+            product=product,
+        )
+
+
+def create_product_variants(data: Dict, product: Product) -> List[ProductVariant]:
+    product_variants = []
+    for product_variant in data["product_variant"]:
+        for tag in product_variant["tags"]:
+            variant = ProductVariant.objects.create(
+                variant_title=tag, product=product, variant_id=product_variant["option"]
+            )
+            product_variants.append(variant)
+
+    return product_variants
 
 
 class CreateProductView(generic.CreateView):
+    model = Product
+    fields = ["title", "sku", "description"]
     template_name = 'products/create.html'
 
     def get_context_data(self, **kwargs):
@@ -15,6 +54,21 @@ class CreateProductView(generic.CreateView):
         context['product'] = True
         context['variants'] = list(variants.all())
         return context
+
+    def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
+        product_form = ProductForm(data=data)
+        with transaction.atomic():
+            if product_form.is_valid:
+                product = product_form.save()
+
+            [ProductImage.objects.create(product=product, file_path=file_path) for file_path in data["product_image"]]
+
+            product_variants = create_product_variants(data, product)
+            product_variant_map = {variant.variant_title: variant.id for variant in product_variants}
+            create_product_variant_price(data, product, product_variant_map)
+
+        return super().post(request, *args, **kwargs)
 
 
 class ListProductView(generic.ListView):
@@ -55,9 +109,7 @@ class ListProductView(generic.ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["paginate_by"] = self.paginate_by
         context["variant_options"] = self.get_select_options()
-
         return context
 
     def get_select_options(self):

@@ -1,6 +1,6 @@
 from django.forms import forms, ModelForm, CharField, TextInput, Textarea, BooleanField, CheckboxInput
 
-from product.models import Variant
+from product.models import Variant, Product
 
 
 class VariantForm(ModelForm):
@@ -12,3 +12,9 @@ class VariantForm(ModelForm):
             'description': Textarea(attrs={'class': 'form-control'}),
             'active': CheckboxInput(attrs={'class': 'form-check-input', 'id': 'active'})
         }
+
+
+class ProductForm(ModelForm):
+    class Meta:
+        model = Product
+        fields = ["title", "sku", "description"]
